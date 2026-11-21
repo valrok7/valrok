@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VALROK Assistant</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card: #141b29;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.35);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      display: flex; justify-content: center; align-items: center;
+      min-height: 100vh; padding: 16px;
+    }
+    .app {
+      width: 100%; max-width: 420px; background: var(--card);
+      border-radius: 24px; padding: 24px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.06);
+      text-align: center;
+    }
+    h1 { margin: 0; letter-spacing: 3px; font-size: 1.6rem; color: var(--accent); }
+    .sub { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+    .ip-row {
+      display: flex; gap: 8px; margin: 18px 0;
+    }
+    input {
+      flex: 1; padding: 10px 12px; border-radius: 12px; border: 1px solid #263248;
+      background: #0e1420; color: var(--text); outline: none; font-size: 0.95rem;
+    }
+    button.save {
+      padding: 10px 14px; border-radius: 12px; border: none;
+      background: #1e293b; color: var(--accent); font-weight: 600; cursor: pointer;
+    }
+    .mic-btn {
+      width: 110px; height: 110px; border-radius: 50%; border: none;
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #041019; font-size: 2.2rem; font-weight: bold;
+      margin: 14px auto; cursor: pointer;
+      box-shadow: 0 0 28px var(--accent-glow);
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+    .mic-btn.listening {
+      background: linear-gradient(135deg, #ef4444, #f97316);
+      box-shadow: 0 0 35px rgba(239, 68, 68, 0.55);
+      transform: scale(1.06);
+    }
+    .status {
+      background: #0e1420; border-radius: 14px; padding: 14px;
+      min-height: 76px; margin-top: 12px; text-align: left;
+      border: 1px solid #1e293b;
+    }
+    .status small { color: var(--accent); display: block; margin-bottom: 4px; font-weight: 600; }
+    .status p { margin: 0; font-size: 0.95rem; line-height: 1.35; }
+    .grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px;
+    }
+    .chip {
+      padding: 12px; border-radius: 14px; border: 1px solid #263248;
+      background: #101725; color: var(--text); font-weight: 600; cursor: pointer;
+    }
+    .chip:active { background: #1e293b; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>VALROK</h1>
+    <div class="sub">Asistente Local & Matriz LED</div>
+
+    <div class="ip-row">
+      <input id="espIp" type="text" placeholder="IP ESP32 (ej. 192.168.1.50)" />
+      <button class="save" onclick="guardarIp()">Guardar</button>
+    </div>
+
+    <button id="micBtn" class="mic-btn" onclick="escuchar()">🎙️</button>
+    <div class="sub" id="micHint">Toca y di: "Valrok, qué hora es..."</div>
+
+    <div class="status">
+      <small id="heard">Listo</small>
+      <p id="reply">Esperando comando para VALROK.</p>
+    </div>
+
+    <div class="grid">
+      <button class="chip" onclick="procesarComando('valrok pon musica')">🎵 Música</button>
+      <button class="chip" onclick="procesarComando('valrok que hora es')">⏰ Hora</button>
+      <button class="chip" onclick="procesarComando('valrok que dia es')">📅 Fecha</button>
+      <button class="chip" onclick="procesarComando('valrok dime un chiste')">😄 Chiste</button>
+      <button class="chip" style="grid-column: span 2;" onclick="procesarComando('valrok clima')">🌤️ Clima Sucre</button>
+    </div>
+  </div>
+
+  <script>
+    const ipInput = document.getElementById('espIp');
+    ipInput.value = localStorage.getItem('valrok_ip') || '';
+
+    function guardarIp() {
+      localStorage.setItem('valrok_ip', ipInput.value.trim());
+      mostrar('IP Guardada', 'Conectado a ' + ipInput.value.trim());
+    }
+
+    function mostrar(titulo, texto) {
+      document.getElementById('heard').textContent = titulo;
+      document.getElementById('reply').textContent = texto;
+    }
+
+    function hablar(texto) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = 'es-ES';
+      u.rate = 1.02;
+      window.speechSynthesis.speak(u);
+    }
+
+    function enviarMatriz(textoCorto) {
+      const ip = ipInput.value.trim();
+      if (!ip) return;
+      fetch(`http://${ip}/msg?t=${encodeURIComponent(textoCorto)}`, { mode: 'no-cors' })
+        .catch(() => {});
+    }
+
+    const chistes = [
+      '¿Qué le dice un bit al otro? Nos vemos en el bus.',
+      '¿Por qué los programadores confunden Halloween con Navidad? Porque OCT 31 es igual a DEC 25.',
+      'Hay 10 tipos de personas: las que entienden binario y las que no.',
+      '¿Cuál es el café más peligroso del mundo? El ex-preso.'
+    ];
+
+    async function procesarComando(raw) {
+      const cmd = raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      mostrar('Dijiste:', raw);
+
+      if (cmd.includes('musica') || cmd.includes('cancion')) {
+        const resp = 'Abriendo música en tu dispositivo para Valrok.';
+        mostrar('VALROK', resp);
+        hablar(resp);
+        enviarMatriz('MODO MUSICA');
+        // Intenta abrir YMusic o YouTube Music en Android
+        window.location.href = 'intent://#Intent;package=com.kapp.youtube.final;end';
+      } 
+      else if (cmd.includes('hora')) {
+        const ahora = new Date();
+        const hh = String(ahora.getHours()).padStart(2, '0');
+        const mm = String(ahora.getMinutes()).padStart(2, '0');
+        const resp = `Son las ${hh} con ${mm}.`;
+        mostrar('VALROK', resp);
+        hablar(resp);
+        enviarMatriz(`HORA ${hh}:${mm}`);
+      } 
+      else if (cmd.includes('dia') || cmd.includes('fecha')) {
+        const ahora = new Date();
+        const opciones = { weekday: 'long', day: 'numeric', month: 'long' };
+        const fechaLarga = ahora.toLocaleDateString('es-ES', opciones);
+        const dd = String(ahora.getDate()).padStart(2, '0');
+        const mo = String(ahora.getMonth() + 1).padStart(2, '0');
+        const resp = `Hoy es ${fechaLarga}.`;
+        mostrar('VALROK', resp);
+        hablar(resp);
+        enviarMatriz(`FECHA ${dd}/${mo}`);
+      } 
+      else if (cmd.includes('chiste')) {
+        const chiste = chistes[Math.floor(Math.random() * chistes.length)];
+        mostrar('VALROK', chiste);
+        hablar(chiste);
+        enviarMatriz(chiste);
+      } 
+      else if (cmd.includes('clima') || cmd.includes('temperatura')) {
+        mostrar('VALROK', 'Consultando clima en Sucre...');
+        try {
+          const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=-19.0333&longitude=-65.2627&current_weather=true');
+          const data = await r.json();
+          const temp = Math.round(data.current_weather.temperature);
+          const resp = `En Sucre actualmente hay ${temp} grados centígrados.`;
+          mostrar('VALROK', resp);
+          hablar(resp);
+          enviarMatriz(`${temp}C SUCRE`);
+        } catch (e) {
+          hablar('No pude obtener el clima ahora.');
+        }
+      } 
+      else {
+        const resp = 'No reconocí ese comando. Pídeme música, la hora, la fecha, el clima o un chiste.';
+        mostrar('VALROK', resp);
+        hablar(resp);
+      }
+    }
+
+    function escuchar() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        mostrar('Aviso', 'Tu navegador no soporta micrófono web; usa los botones de abajo.');
+        return;
+      }
+      const rec = new SR();
+      rec.lang = 'es-ES';
+      const btn = document.getElementById('micBtn');
+      btn.classList.add('listening');
+      document.getElementById('micHint').textContent = 'Escuchando...';
+
+      rec.onresult = (e) => {
+        const texto = e.results[0][0].transcript;
+        procesarComando(texto);
+      };
+      rec.onerror = () => {
+        mostrar('Micrófono', 'No se pudo escuchar. Revisa permisos o usa los botones.');
+      };
+      rec.onend = () => {
+        btn.classList.remove('listening');
+        document.getElementById('micHint').textContent = 'Toca y di: "Valrok, qué hora es..."';
+      };
+      rec.start();
+    }
+  </script>
+</body>
+</html>
